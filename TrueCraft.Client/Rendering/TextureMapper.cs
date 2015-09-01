@@ -79,7 +79,6 @@ namespace TrueCraft.Client.Rendering
                                 {
                                     CopyStream(stream, ms);
                                     ms.Seek(0, SeekOrigin.Begin);
-                                    AddTexture(key, new PngReader().Read(ms, Device));
                                     AddTexture(key, Texture2D.FromStream(ms));
                                 }
                             }
