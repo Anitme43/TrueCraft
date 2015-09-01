@@ -31,7 +31,7 @@ namespace TrueCraft.Core.Logic.Blocks
             return new Tuple<int, int>(8, 5);
         }
 
-        protected override ItemStack[] GetDrop(BlockDescriptor descriptor)
+        protected override ItemStack[] GetDrop(BlockDescriptor descriptor, ItemStack item)
         {
             if (descriptor.Metadata >= 7)
                 return new[] { new ItemStack(WheatItem.ItemID), new ItemStack(SeedsItem.ItemID, (sbyte)MathHelper.Random.Next(3)) };
@@ -48,7 +48,9 @@ namespace TrueCraft.Core.Logic.Blocks
             world.SetMetadata(coords, meta);
             if (meta < 7)
             {
-                server.Scheduler.ScheduleEvent(DateTime.Now.AddSeconds(MathHelper.Random.Next(30, 60)),
+                var chunk = world.FindChunk(coords);
+                server.Scheduler.ScheduleEvent(
+                    chunk, DateTime.UtcNow.AddSeconds(MathHelper.Random.Next(30, 60)),
                    (_server) => GrowBlock(_server, world, coords));
             }
         }
@@ -57,15 +59,23 @@ namespace TrueCraft.Core.Logic.Blocks
         {
             if (world.GetBlockID(descriptor.Coordinates + Coordinates3D.Down) != FarmlandBlock.BlockID)
             {
-                GenerateDropEntity(descriptor, world, server);
+                GenerateDropEntity(descriptor, world, server, ItemStack.EmptyStack);
                 world.SetBlockID(descriptor.Coordinates, 0);
             }
         }
 
         public override void BlockPlaced(BlockDescriptor descriptor, BlockFace face, IWorld world, IRemoteClient user)
         {
-            user.Server.Scheduler.ScheduleEvent(DateTime.Now.AddSeconds(MathHelper.Random.Next(30, 60)),
+            var chunk = world.FindChunk(descriptor.Coordinates);
+            user.Server.Scheduler.ScheduleEvent(chunk, DateTime.UtcNow.AddSeconds(MathHelper.Random.Next(30, 60)),
                 (server) => GrowBlock(server, world, descriptor.Coordinates + MathHelper.BlockFaceToCoordinates(face)));
+        }
+
+        public override void BlockLoadedFromChunk(Coordinates3D coords, IMultiplayerServer server, IWorld world)
+        {
+            var chunk = world.FindChunk(coords);
+            server.Scheduler.ScheduleEvent(chunk, DateTime.UtcNow.AddSeconds(MathHelper.Random.Next(30, 60)),
+                (s) => GrowBlock(s, world, coords));
         }
     }
 }

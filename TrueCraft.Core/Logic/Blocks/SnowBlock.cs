@@ -78,7 +78,15 @@ namespace TrueCraft.Core.Logic.Blocks
             return new Tuple<int, int>(2, 4);
         }
 
-        protected override ItemStack[] GetDrop(BlockDescriptor descriptor)
+        public override ToolType EffectiveTools
+        {
+            get
+            {
+                return ToolType.Shovel;
+            }
+        }
+
+        protected override ItemStack[] GetDrop(BlockDescriptor descriptor, ItemStack item)
         {
             return new[] { new ItemStack(SnowballItem.ItemID) };
         }

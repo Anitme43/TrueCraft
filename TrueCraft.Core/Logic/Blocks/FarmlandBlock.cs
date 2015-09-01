@@ -32,11 +32,11 @@ namespace TrueCraft.Core.Logic.Blocks
 
         public override bool Opaque { get { return true; } } // TODO: Distinguish between opaque and instantly destroyable
 
-        public override byte LightModifier { get { return 255; } }
+        public override byte LightOpacity { get { return 255; } }
         
         public override string DisplayName { get { return "Farmland"; } }
 
-        protected override ItemStack[] GetDrop(BlockDescriptor descriptor)
+        protected override ItemStack[] GetDrop(BlockDescriptor descriptor, ItemStack item)
         {
             return new[] { new ItemStack(DirtBlock.BlockID) };
         }
@@ -85,7 +85,10 @@ namespace TrueCraft.Core.Logic.Blocks
                 }
                 world.SetMetadata(coords, meta);
             }
-            server.Scheduler.ScheduleEvent(DateTime.Now.AddSeconds(UpdateIntervalSeconds), (_server) => HydrationCheckEvent(_server, coords, world));
+            var chunk = world.FindChunk(coords);
+            server.Scheduler.ScheduleEvent(chunk,
+                DateTime.UtcNow.AddSeconds(UpdateIntervalSeconds),
+                _server => HydrationCheckEvent(_server, coords, world));
         }
 
         public override void BlockPlaced(BlockDescriptor descriptor, BlockFace face, IWorld world, IRemoteClient user)
@@ -94,7 +97,18 @@ namespace TrueCraft.Core.Logic.Blocks
             {
                 world.SetMetadata(descriptor.Coordinates, 1);
             }
-            user.Server.Scheduler.ScheduleEvent(DateTime.Now.AddSeconds(UpdateIntervalSeconds), (server) => HydrationCheckEvent(server, descriptor.Coordinates, world));
+            var chunk = world.FindChunk(descriptor.Coordinates);
+            user.Server.Scheduler.ScheduleEvent(chunk,
+                DateTime.UtcNow.AddSeconds(UpdateIntervalSeconds),
+                server => HydrationCheckEvent(server, descriptor.Coordinates, world));
+        }
+
+        public override void BlockLoadedFromChunk(Coordinates3D coords, IMultiplayerServer server, IWorld world)
+        {
+            var chunk = world.FindChunk(coords);
+            server.Scheduler.ScheduleEvent(chunk,
+                DateTime.UtcNow.AddSeconds(UpdateIntervalSeconds),
+                s => HydrationCheckEvent(s, coords, world));
         }
     }
 }

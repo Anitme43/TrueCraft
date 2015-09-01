@@ -25,7 +25,7 @@ using TrueCraft.Exceptions;
 
 namespace TrueCraft
 {
-    public class RemoteClient : IRemoteClient, IDisposable
+    public class RemoteClient : IRemoteClient, IEventSubject, IDisposable
     {
         public RemoteClient(IMultiplayerServer server, IPacketReader packetReader, PacketHandler[] packetHandlers, Socket connection)
         {
@@ -50,6 +50,8 @@ namespace TrueCraft
             StartReceive();
         }
 
+        public event EventHandler Disposed;
+
         /// <summary>
         /// A list of entities that this client is aware of.
         /// </summary>
@@ -68,6 +70,7 @@ namespace TrueCraft
         public IWindow CurrentWindow { get; internal set; }
         public bool EnableLogging { get; set; }
         public IPacket LastSuccessfulPacket { get; set; }
+        public DateTime ExpectedDigComplete { get; set; }
 
         public Socket Connection { get; private set; }
 
@@ -223,7 +226,7 @@ namespace TrueCraft
         public void Log(string message, params object[] parameters)
         {
             if (EnableLogging)
-                SendMessage(ChatColor.Gray + string.Format("[" + DateTime.Now.ToShortTimeString() + "] " + message, parameters));
+                SendMessage(ChatColor.Gray + string.Format("[" + DateTime.UtcNow.ToShortTimeString() + "] " + message, parameters));
         }
 
         public void QueuePacket(IPacket packet)
@@ -282,7 +285,15 @@ namespace TrueCraft
 
                     e.SetBuffer(null, 0, 0);
                     break;
+                case SocketAsyncOperation.Disconnect:
+                    Connection.Close();
+
+                    break;
             }
+
+            if (Connection != null)
+                if (!Connection.Connected && !Disconnected)
+                    Server.DisconnectClient(this);
         }
 
         private void ProcessNetwork(SocketAsyncEventArgs e)
@@ -298,7 +309,16 @@ namespace TrueCraft
                 if (!Connection.ReceiveAsync(newArgs))
                     OperationCompleted(this, newArgs);
 
-                sem.Wait(cancel.Token);
+                try
+                {
+                    sem.Wait(cancel.Token);
+                }
+                catch (OperationCanceledException)
+                {
+                }
+                catch (NullReferenceException)
+                {
+                }
 
                 var packets = PacketReader.ReadPackets(this, e.Buffer, e.Offset, e.BytesTransferred);
 
@@ -341,15 +361,18 @@ namespace TrueCraft
 
         public void Disconnect()
         {
-            if (!Disconnected)
+            if (Disconnected)
                 return;
 
             Disconnected = true;
 
-            SocketAsyncEventArgs args = new SocketAsyncEventArgs();
-            Connection.DisconnectAsync(args);
-
             cancel.Cancel();
+
+            Connection.Shutdown(SocketShutdown.Send);
+
+            SocketAsyncEventArgs args = new SocketAsyncEventArgs();
+            args.Completed += OperationCompleted;
+            Connection.DisconnectAsync(args);
         }
 
         public void SendMessage(string message)
@@ -369,7 +392,7 @@ namespace TrueCraft
                 {
                     ChunkRadius++;
                     UpdateChunks();
-                    server.Scheduler.ScheduleEvent(DateTime.Now.AddSeconds(1), ExpandChunkRadius);
+                    server.Scheduler.ScheduleEvent(this, DateTime.UtcNow.AddSeconds(1), ExpandChunkRadius);
                 }
             });
         }
@@ -377,7 +400,7 @@ namespace TrueCraft
         internal void SendKeepAlive(IMultiplayerServer server)
         {
             QueuePacket(new KeepAlivePacket());
-            server.Scheduler.ScheduleEvent(DateTime.Now.AddSeconds(1), SendKeepAlive);
+            server.Scheduler.ScheduleEvent(this, DateTime.UtcNow.AddSeconds(1), SendKeepAlive);
         }
 
         internal void UpdateChunks()
@@ -508,6 +531,9 @@ namespace TrueCraft
                 Disconnect();
 
                 sem.Dispose();
+
+                if (Disposed != null)
+                    Disposed(this, null);
             }
 
             sem = null;

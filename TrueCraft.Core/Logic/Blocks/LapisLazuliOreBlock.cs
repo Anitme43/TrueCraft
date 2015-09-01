@@ -24,9 +24,25 @@ namespace TrueCraft.Core.Logic.Blocks
             return new Tuple<int, int>(0, 10);
         }
 
-        protected override ItemStack[] GetDrop(BlockDescriptor descriptor)
+        protected override ItemStack[] GetDrop(BlockDescriptor descriptor, ItemStack item)
         {
             return new[] { new ItemStack(DyeItem.ItemID, (sbyte)new Random().Next(4, 8), (short)DyeItem.DyeType.LapisLazuli) };
+        }
+
+        public override ToolMaterial EffectiveToolMaterials
+        {
+            get
+            {
+                return ToolMaterial.Stone | ToolMaterial.Iron | ToolMaterial.Diamond;
+            }
+        }
+
+        public override ToolType EffectiveTools
+        {
+            get
+            {
+                return ToolType.Pickaxe;
+            }
         }
     }
 }

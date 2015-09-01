@@ -9,6 +9,7 @@ using TrueCraft.Core.Networking.Packets;
 using TrueCraft.Core;
 using TrueCraft.API.Server;
 using TrueCraft.Core.Logic.Blocks;
+using TrueCraft.API.Physics;
 
 namespace TrueCraft.Core.Entities
 {
@@ -99,7 +100,7 @@ namespace TrueCraft.Core.Entities
         public override void Update(IEntityManager entityManager)
         {
             var nearbyEntities = entityManager.EntitiesInRange(Position, PickupRange);
-            if ((DateTime.Now - SpawnTime).TotalSeconds > 1)
+            if ((DateTime.UtcNow - SpawnTime).TotalSeconds > 1)
             {
                 var player = nearbyEntities.FirstOrDefault(e => e is PlayerEntity && (e as PlayerEntity).Health != 0
                                  && e.Position.DistanceTo(Position) <= PickupRange);
@@ -109,41 +110,25 @@ namespace TrueCraft.Core.Entities
                     playerEntity.OnPickUpItem(this);
                     entityManager.DespawnEntity(this);
                 }
-                /* TODO: Merging item entities (this code behaves strangely
-                var item = nearbyEntities.FirstOrDefault(e => e is ItemEntity
-                    && e != this
-                    && (DateTime.Now - (e as ItemEntity).SpawnTime).TotalSeconds > 1
-                    && (e as ItemEntity).Item.ID == Item.ID && (e as ItemEntity).Item.Metadata == Item.Metadata
-                    && (e as ItemEntity).Item.Nbt == Item.Nbt
-                    && e.Position.DistanceTo(Position) < PickupRange);
-                if (item != null)
-                {
-                    // Merge
-                    entityManager.DespawnEntity(item);
-                    var newItem = Item;
-                    newItem.Count += (item as ItemEntity).Item.Count;
-                    Item = newItem;
-                    OnPropertyChanged("Metadata");
-                }*/
             }
-            if ((DateTime.Now - SpawnTime).TotalMinutes > 5)
+            if ((DateTime.UtcNow - SpawnTime).TotalMinutes > 5)
                 entityManager.DespawnEntity(this);
             base.Update(entityManager);
         }
 
         public float AccelerationDueToGravity
         {
-            get { return 0.04f; }
+            get { return 16f; }
         }
 
         public float Drag
         {
-            get { return 0.02f; }
+            get { return 0.40f; }
         }
 
         public float TerminalVelocity
         {
-            get { return 1.96f; }
+            get { return 39.2f; }
         }
     }
 }

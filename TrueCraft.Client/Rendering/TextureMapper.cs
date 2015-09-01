@@ -75,11 +75,13 @@ namespace TrueCraft.Client.Rendering
                         {
                             try
                             {
-                                var ms = new MemoryStream();
-                                CopyStream(stream, ms);
-                                ms.Seek(0, SeekOrigin.Begin);
-                                AddTexture(key, Texture2D.FromStream(ms));
-                                ms.Dispose();
+                                using (var ms = new MemoryStream())
+                                {
+                                    CopyStream(stream, ms);
+                                    ms.Seek(0, SeekOrigin.Begin);
+                                    AddTexture(key, new PngReader().Read(ms, Device));
+                                    AddTexture(key, Texture2D.FromStream(ms));
+                                }
                             }
                             catch (Exception ex) { Console.WriteLine("Exception occured while loading {0} from texture pack:\n\n{1}", key, ex); }
                         }
@@ -158,7 +160,6 @@ namespace TrueCraft.Client.Rendering
             foreach (var pair in Customs)
                 pair.Value.Dispose();
 
-            Customs.Clear();
             Customs = null;
             IsDisposed = true;
         }

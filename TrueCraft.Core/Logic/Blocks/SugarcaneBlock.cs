@@ -40,7 +40,7 @@ namespace TrueCraft.Core.Logic.Blocks
             return new Tuple<int, int>(9, 4);
         }
 
-        protected override ItemStack[] GetDrop(BlockDescriptor descriptor)
+        protected override ItemStack[] GetDrop(BlockDescriptor descriptor, ItemStack item)
         {
             return new[] { new ItemStack(SugarCanesItem.ItemID) };
         }
@@ -80,7 +80,7 @@ namespace TrueCraft.Core.Logic.Blocks
             {
                 // Destroy self
                 world.SetBlockID(descriptor.Coordinates, 0);
-                GenerateDropEntity(descriptor, world, server);
+                GenerateDropEntity(descriptor, world, server, ItemStack.EmptyStack);
             }
         }
 
@@ -100,15 +100,18 @@ namespace TrueCraft.Core.Logic.Blocks
                 var meta = world.GetMetadata(coords);
                 meta++;
                 world.SetMetadata(coords, meta);
+                var chunk = world.FindChunk(coords);
                 if (meta == 15)
                 {
                     world.SetBlockID(coords + Coordinates3D.Up, BlockID);
-                    server.Scheduler.ScheduleEvent(DateTime.Now.AddSeconds(MathHelper.Random.Next(MinGrowthSeconds, MaxGrowthSeconds)),
+                    server.Scheduler.ScheduleEvent(chunk,
+                        DateTime.UtcNow.AddSeconds(MathHelper.Random.Next(MinGrowthSeconds, MaxGrowthSeconds)),
                         (_server) => TryGrowth(_server, coords + Coordinates3D.Up, world));
                 }
                 else
                 {
-                    server.Scheduler.ScheduleEvent(DateTime.Now.AddSeconds(MathHelper.Random.Next(MinGrowthSeconds, MaxGrowthSeconds)),
+                    server.Scheduler.ScheduleEvent(chunk,
+                        DateTime.UtcNow.AddSeconds(MathHelper.Random.Next(MinGrowthSeconds, MaxGrowthSeconds)),
                         (_server) => TryGrowth(_server, coords, world));
                 }
             }
@@ -116,8 +119,18 @@ namespace TrueCraft.Core.Logic.Blocks
 
         public override void BlockPlaced(BlockDescriptor descriptor, BlockFace face, IWorld world, IRemoteClient user)
         {
-            user.Server.Scheduler.ScheduleEvent(DateTime.Now.AddSeconds(MathHelper.Random.Next(MinGrowthSeconds, MaxGrowthSeconds)),
+            var chunk = world.FindChunk(descriptor.Coordinates);
+            user.Server.Scheduler.ScheduleEvent(chunk,
+                DateTime.UtcNow.AddSeconds(MathHelper.Random.Next(MinGrowthSeconds, MaxGrowthSeconds)),
                 (server) => TryGrowth(server, descriptor.Coordinates, world));
+        }
+
+        public override void BlockLoadedFromChunk(Coordinates3D coords, IMultiplayerServer server, IWorld world)
+        {
+            var chunk = world.FindChunk(coords);
+            server.Scheduler.ScheduleEvent(chunk,
+                DateTime.UtcNow.AddSeconds(MathHelper.Random.Next(MinGrowthSeconds, MaxGrowthSeconds)),
+                s => TryGrowth(s, coords, world));
         }
     }
 }

@@ -8,6 +8,9 @@
     <RootNamespace>TrueCraft.Core</RootNamespace>
     <AssemblyName>TrueCraft.Core</AssemblyName>
     <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
+    <ProductVersion>8.0.30703</ProductVersion>
+    <SchemaVersion>2.0</SchemaVersion>
+    <TargetFrameworkVersion>v4.5</TargetFrameworkVersion>
   </PropertyGroup>
   <PropertyGroup Condition=" '$(Configuration)|$(Platform)' == 'Debug|AnyCPU' ">
     <DebugSymbols>true</DebugSymbols>
@@ -28,12 +31,12 @@
     <ConsolePause>false</ConsolePause>
   </PropertyGroup>
   <ItemGroup>
-    <Reference Include="Newtonsoft.Json">
-      <HintPath>..\packages\Newtonsoft.Json.6.0.8\lib\net40\Newtonsoft.Json.dll</HintPath>
-    </Reference>
     <Reference Include="System" />
     <Reference Include="Ionic.Zip.Reduced">
       <HintPath>..\lib\Ionic.Zip.Reduced.dll</HintPath>
+    </Reference>
+    <Reference Include="Newtonsoft.Json">
+      <HintPath>..\packages\Newtonsoft.Json.7.0.1\lib\net45\Newtonsoft.Json.dll</HintPath>
     </Reference>
   </ItemGroup>
   <ItemGroup>
@@ -323,6 +326,26 @@
     <Compile Include="Logic\Blocks\DandelionBlock.cs" />
     <Compile Include="Windows\ChestWindow.cs" />
     <Compile Include="TerrainGen\EmptyGenerator.cs" />
+    <Compile Include="Logic\ItemRepository.cs" />
+    <Compile Include="Lighting\WorldLighting.cs" />
+    <Compile Include="AI\AStarPathFinder.cs" />
+    <Compile Include="AI\PriorityQueue.cs" />
+    <Compile Include="Entities\SpiderEntity.cs" />
+    <Compile Include="Entities\MobEntity.cs" />
+    <Compile Include="Entities\CreeperEntity.cs" />
+    <Compile Include="Entities\SkeletonEntity.cs" />
+    <Compile Include="Entities\GiantZombieEntity.cs" />
+    <Compile Include="Entities\ZombieEntity.cs" />
+    <Compile Include="Entities\SlimeEntity.cs" />
+    <Compile Include="Entities\GhastEntity.cs" />
+    <Compile Include="Entities\ZombiePigmanEntity.cs" />
+    <Compile Include="Entities\PigEntity.cs" />
+    <Compile Include="Entities\SheepEntity.cs" />
+    <Compile Include="Entities\CowEntity.cs" />
+    <Compile Include="Entities\HenEntity.cs" />
+    <Compile Include="Entities\SquidEntity.cs" />
+    <Compile Include="AI\WanderState.cs" />
+    <Compile Include="Physics\PhysicsEngine.cs" />
   </ItemGroup>
   <Import Project="$(MSBuildBinPath)\Microsoft.CSharp.targets" />
   <ItemGroup>
@@ -335,9 +358,6 @@
       <Name>fNbt</Name>
     </ProjectReference>
   </ItemGroup>
-  <ItemGroup>
-    <None Include="packages.config" />
-  </ItemGroup>
   <ProjectExtensions>
     <MonoDevelop>
       <Properties>
@@ -348,4 +368,12 @@
       </Properties>
     </MonoDevelop>
   </ProjectExtensions>
+  <ItemGroup>
+    <Folder Include="Lighting\" />
+    <Folder Include="AI\" />
+    <Folder Include="Physics\" />
+  </ItemGroup>
+  <ItemGroup>
+    <None Include="packages.config" />
+  </ItemGroup>
 </Project>

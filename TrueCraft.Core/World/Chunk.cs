@@ -12,6 +12,14 @@ namespace TrueCraft.Core.World
     {
         public const int Width = 16, Height = 128, Depth = 16;
 
+        public event EventHandler Disposed;
+
+        public void Dispose()
+        {
+            if (Disposed != null)
+                Disposed(this, null);
+        }
+
         [NbtIgnore]
         public DateTime LastAccessed { get; set; }
         [NbtIgnore]
@@ -26,10 +34,25 @@ namespace TrueCraft.Core.World
         public NibbleArray SkyLight { get; set; }
         public byte[] Biomes { get; set; }
         public int[] HeightMap { get; set; }
+        public int MaxHeight { get; private set; }
         [TagName("xPos")]
         public int X { get; set; }
         [TagName("zPos")]
         public int Z { get; set; }
+        [NbtIgnore]
+        private bool _LightPopulated;
+        public bool LightPopulated
+        {
+            get
+            {
+                return _LightPopulated;
+            }
+            set
+            {
+                _LightPopulated = value;
+                IsModified = true;
+            }
+        }
         public Dictionary<Coordinates3D, NbtCompound> TileEntities { get; set; }
 
         public Coordinates2D Coordinates
@@ -54,10 +77,12 @@ namespace TrueCraft.Core.World
 
         public Chunk()
         {
-            TerrainPopulated = true;
             Biomes = new byte[Width * Depth];
             HeightMap = new int[Width * Depth];
             TileEntities = new Dictionary<Coordinates3D, NbtCompound>();
+            TerrainPopulated = false;
+            LightPopulated = false;
+            MaxHeight = 0;
         }
 
         public Chunk(Coordinates2D coordinates) : this()
@@ -69,8 +94,6 @@ namespace TrueCraft.Core.World
             Metadata = new NibbleArray(size);
             BlockLight = new NibbleArray(size);
             SkyLight = new NibbleArray(size);
-            for (int i = 0; i < size; i++)
-                SkyLight[i] = 0xFF;
         }
 
         public byte GetBlockID(Coordinates3D coordinates)
@@ -118,7 +141,12 @@ namespace TrueCraft.Core.World
                     {
                         coordinates.Y--;
                         if (GetBlockID(coordinates) != 0)
+                        {
                             SetHeight((byte)coordinates.X, (byte)coordinates.Z, coordinates.Y);
+                            if (coordinates.Y > MaxHeight)
+                                MaxHeight = coordinates.Y;
+                            break;
+                        }
                     }
                 }
             }
@@ -211,6 +239,8 @@ namespace TrueCraft.Core.World
                         if (Blocks[index] != 0)
                         {
                             SetHeight(x, z, y);
+                            if (y > MaxHeight)
+                                MaxHeight = y;
                             break;
                         }
                     }
@@ -243,6 +273,8 @@ namespace TrueCraft.Core.World
             chunk.Add(entities);
             chunk.Add(new NbtInt("X", X));
             chunk.Add(new NbtInt("Z", Z));
+            chunk.Add(new NbtByte("LightPopulated", (byte)(LightPopulated ? 1 : 0)));
+            chunk.Add(new NbtByte("TerrainPopulated", (byte)(TerrainPopulated ? 1 : 0)));
             chunk.Add(new NbtByteArray("Blocks", Blocks));
             chunk.Add(new NbtByteArray("Data", Metadata.Data));
             chunk.Add(new NbtByteArray("SkyLight", SkyLight.Data));
@@ -268,15 +300,14 @@ namespace TrueCraft.Core.World
 
         public void Deserialize(NbtTag value)
         {
-            var chunk = new Chunk();
             var tag = (NbtCompound)value;
 
-            Biomes = chunk.Biomes;
-            HeightMap = chunk.HeightMap;
-            LastUpdate = chunk.LastUpdate;
-            TerrainPopulated = chunk.TerrainPopulated;
             X = tag["X"].IntValue;
             Z = tag["Z"].IntValue;
+            if (tag.Contains("TerrainPopulated"))
+                TerrainPopulated = tag["TerrainPopulated"].ByteValue > 0;
+            if (tag.Contains("LightPopulated"))
+                LightPopulated = tag["LightPopulated"].ByteValue > 0;
             Blocks = tag["Blocks"].ByteArrayValue;
             Metadata = new NibbleArray();
             Metadata.Data = tag["Data"].ByteArrayValue;
@@ -294,6 +325,7 @@ namespace TrueCraft.Core.World
                         entity["coordinates"][2].IntValue)] = entity["value"][0] as NbtCompound;
                 }
             }
+            UpdateHeightMap();
 
             // TODO: Entities
         }

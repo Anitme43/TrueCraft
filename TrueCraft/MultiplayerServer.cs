@@ -15,6 +15,11 @@ using TrueCraft.Core.Logging;
 using TrueCraft.API.Logic;
 using TrueCraft.Exceptions;
 using TrueCraft.Core.Logic;
+using TrueCraft.Core.Lighting;
+using TrueCraft.Core.World;
+using System.Threading.Tasks;
+using System.Diagnostics;
+using System.Collections.Concurrent;
 
 namespace TrueCraft
 {
@@ -30,6 +35,7 @@ namespace TrueCraft
         public IList<IRemoteClient> Clients { get; private set; }
         public IList<IWorld> Worlds { get; private set; }
         public IList<IEntityManager> EntityManagers { get; private set; }
+        public IList<WorldLighting> WorldLighters { get; set; }
         public IEventScheduler Scheduler { get; private set; }
         public IBlockRepository BlockRepository { get; private set; }
         public IItemRepository ItemRepository { get; private set; }
@@ -65,6 +71,7 @@ namespace TrueCraft
         private TcpListener Listener;
         private readonly PacketHandler[] PacketHandlers;
         private IList<ILogProvider> LogProviders;
+        private ConcurrentBag<Tuple<IWorld, IChunk>> ChunksToSchedule;
         internal object ClientLock = new object();
         
         private QueryProtocol QueryProtocol;
@@ -88,12 +95,16 @@ namespace TrueCraft
             var itemRepository = new ItemRepository();
             itemRepository.DiscoverItemProviders();
             ItemRepository = itemRepository;
+            BlockProvider.ItemRepository = ItemRepository;
+            BlockProvider.BlockRepository = BlockRepository;
             var craftingRepository = new CraftingRepository();
             craftingRepository.DiscoverRecipes();
             CraftingRepository = craftingRepository;
             PendingBlockUpdates = new Queue<BlockUpdate>();
             EnableClientLogging = false;
             QueryProtocol = new TrueCraft.QueryProtocol(this);
+            WorldLighters = new List<WorldLighting>();
+            ChunksToSchedule = new ConcurrentBag<Tuple<IWorld, IChunk>>();
 
             AccessConfiguration = Configuration.LoadConfiguration<AccessConfiguration>("access.yaml");
 
@@ -120,7 +131,7 @@ namespace TrueCraft
                 AcceptClient(this, args);
             
             Log(LogCategory.Notice, "Running TrueCraft server on {0}", EndPoint);
-            EnvironmentWorker.Change(100, 1000 / 20);
+            EnvironmentWorker.Change(1000 / 20, 0);
             if(Program.ServerConfiguration.Query)
                 QueryProtocol.Start();
         }
@@ -141,25 +152,87 @@ namespace TrueCraft
         {
             Worlds.Add(world);
             world.BlockRepository = BlockRepository;
+            world.ChunkGenerated += HandleChunkGenerated;
+            world.ChunkLoaded += HandleChunkLoaded;
             world.BlockChanged += HandleBlockChanged;
             var manager = new EntityManager(this, world);
             EntityManagers.Add(manager);
+            var lighter = new WorldLighting(world, BlockRepository);
+            WorldLighters.Add(lighter);
+            foreach (var chunk in world)
+                HandleChunkLoaded(world, new ChunkLoadedEventArgs(chunk));
+        }
+
+        void HandleChunkLoaded(object sender, ChunkLoadedEventArgs e)
+        {
+            ChunksToSchedule.Add(new Tuple<IWorld, IChunk>(sender as IWorld, e.Chunk));
         }
 
         void HandleBlockChanged(object sender, BlockChangeEventArgs e)
         {
-            for (int i = 0, ClientsCount = Clients.Count; i < ClientsCount; i++)
+            // TODO: Propegate lighting changes to client (not possible with beta 1.7.3 protocol)
+            if (e.NewBlock.ID != e.OldBlock.ID || e.NewBlock.Metadata != e.OldBlock.Metadata)
             {
-                var client = (RemoteClient)Clients[i];
-                // TODO: Confirm that the client knows of this block
-                if (client.LoggedIn && client.World == sender)
+                for (int i = 0, ClientsCount = Clients.Count; i < ClientsCount; i++)
                 {
-                    client.QueuePacket(new BlockChangePacket(e.Position.X, (sbyte)e.Position.Y, e.Position.Z,
-                            (sbyte)e.NewBlock.ID, (sbyte)e.NewBlock.Metadata));
+                    var client = (RemoteClient)Clients[i];
+                    // TODO: Confirm that the client knows of this block
+                    if (client.LoggedIn && client.World == sender)
+                    {
+                        client.QueuePacket(new BlockChangePacket(e.Position.X, (sbyte)e.Position.Y, e.Position.Z,
+                                (sbyte)e.NewBlock.ID, (sbyte)e.NewBlock.Metadata));
+                    }
+                }
+                PendingBlockUpdates.Enqueue(new BlockUpdate { Coordinates = e.Position, World = sender as IWorld });
+                ProcessBlockUpdates();
+                if (Program.ServerConfiguration.EnableLighting)
+                {
+                    var lighter = WorldLighters.SingleOrDefault(l => l.World == sender);
+                    if (lighter != null)
+                    {
+                        lighter.EnqueueOperation(new BoundingBox(e.Position, e.Position + Vector3.One), true);
+                        lighter.EnqueueOperation(new BoundingBox(e.Position, e.Position + Vector3.One), false);
+                    }
                 }
             }
-            PendingBlockUpdates.Enqueue(new BlockUpdate { Coordinates = e.Position, World = sender as IWorld });
-            ProcessBlockUpdates();
+        }
+
+        void HandleChunkGenerated(object sender, ChunkLoadedEventArgs e)
+        {
+            if (Program.ServerConfiguration.EnableLighting)
+            {
+                var lighter = new WorldLighting(sender as IWorld, BlockRepository);
+                lighter.InitialLighting(e.Chunk);
+            }
+            else
+            {
+                for (int i = 0; i < e.Chunk.SkyLight.Data.Length; i++)
+                {
+                    e.Chunk.SkyLight.Data[i] = 0xFF;
+                }
+            }
+            HandleChunkLoaded(sender, e);
+        }
+
+        void ScheduleUpdatesForChunk(IWorld world, IChunk chunk)
+        {
+            int _x = chunk.Coordinates.X * Chunk.Width;
+            int _z = chunk.Coordinates.Z * Chunk.Depth;
+            for (byte x = 0; x < Chunk.Width; x++)
+            {
+                for (byte z = 0; z < Chunk.Depth; z++)
+                {
+                    for (int y = 0; y < chunk.GetHeight(x, z); y++)
+                    {
+                        var coords = new Coordinates3D(_x + x, y, _z + z);
+                        var id = world.GetBlockID(coords);
+                        if (id == 0)
+                            continue;
+                        var provider = BlockRepository.GetBlockProvider(id);
+                        provider.BlockLoadedFromChunk(coords, this, world);
+                    }
+                }
+            }
         }
 
         private void ProcessBlockUpdates()
@@ -299,6 +372,17 @@ namespace TrueCraft
             {
                 manager.Update();
             }
+            foreach (var lighter in WorldLighters)
+            {
+                int attempts = 500;
+                while (attempts-- > 0 && lighter.TryLightNext())
+                {
+                }
+            }
+            Tuple<IWorld, IChunk> t;
+            if (ChunksToSchedule.TryTake(out t))
+                ScheduleUpdatesForChunk(t.Item1, t.Item2);
+            EnvironmentWorker.Change(1000 / 20, 0);
         }
 
         public bool PlayerIsWhitelisted(string client)

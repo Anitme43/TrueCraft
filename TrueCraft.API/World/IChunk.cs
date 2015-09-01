@@ -4,16 +4,19 @@ using System.Collections.Generic;
 
 namespace TrueCraft.API.World
 {
-    public interface IChunk
+    public interface IChunk : IEventSubject, IDisposable
     {
         int X { get; }
         int Z { get; }
+        int MaxHeight { get; }
         Coordinates2D Coordinates { get; set; }
         bool IsModified { get; set; }
+        bool LightPopulated { get; set; }
         int[] HeightMap { get; }
         byte[] Biomes { get; }
         DateTime LastAccessed { get; set; }
         byte[] Blocks { get; }
+        bool TerrainPopulated { get; set; }
         Dictionary<Coordinates3D, NbtCompound> TileEntities { get; set; }
         NibbleArray Metadata { get; }
         NibbleArray BlockLight { get; }

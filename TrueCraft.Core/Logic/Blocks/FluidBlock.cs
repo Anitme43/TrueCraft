@@ -26,7 +26,7 @@ namespace TrueCraft.Core.Logic.Blocks
             }
         }
 
-        protected override ItemStack[] GetDrop(BlockDescriptor descriptor)
+        protected override ItemStack[] GetDrop(BlockDescriptor descriptor, ItemStack item)
         {
             return new ItemStack[0];
         }
@@ -69,7 +69,9 @@ namespace TrueCraft.Core.Logic.Blocks
 
         public void ScheduleNextEvent(Coordinates3D coords, IWorld world, IMultiplayerServer server)
         {
-            server.Scheduler.ScheduleEvent(DateTime.Now.AddSeconds(SecondsBetweenUpdates), (_server) =>
+            var chunk = world.FindChunk(coords);
+            server.Scheduler.ScheduleEvent(chunk,
+                DateTime.UtcNow.AddSeconds(SecondsBetweenUpdates), (_server) =>
                 AutomataUpdate(_server, world, coords));
         }
 
@@ -93,6 +95,11 @@ namespace TrueCraft.Core.Logic.Blocks
             }
         }
 
+        public override void BlockLoadedFromChunk(Coordinates3D coords, IMultiplayerServer server, IWorld world)
+        {
+            ScheduleNextEvent(coords, world, server);
+        }
+
         private void AutomataUpdate(IMultiplayerServer server, IWorld world, Coordinates3D coords)
         {
             if (world.GetBlockID(coords) != FlowingID && world.GetBlockID(coords) != StillID)
@@ -102,7 +109,9 @@ namespace TrueCraft.Core.Logic.Blocks
             server.BlockUpdatesEnabled = true;
             if (again)
             {
-                server.Scheduler.ScheduleEvent(DateTime.Now.AddSeconds(SecondsBetweenUpdates), (_server) =>
+                var chunk = world.FindChunk(coords);
+                server.Scheduler.ScheduleEvent(chunk,
+                    DateTime.UtcNow.AddSeconds(SecondsBetweenUpdates), (_server) =>
                     AutomataUpdate(_server, world, coords));
             }
         }
@@ -151,11 +160,14 @@ namespace TrueCraft.Core.Logic.Blocks
         {
             // For each block we can flow into, generate an item entity if appropriate
             var provider = world.BlockRepository.GetBlockProvider(world.GetBlockID(target.TargetBlock));
-            provider.GenerateDropEntity(new BlockDescriptor { Coordinates = target.TargetBlock, ID = provider.ID }, world, server);
+            provider.GenerateDropEntity(new BlockDescriptor { Coordinates = target.TargetBlock, ID = provider.ID }, world, server, ItemStack.EmptyStack);
             // And overwrite the block with a new fluid block.
             world.SetBlockID(target.TargetBlock, FlowingID);
             world.SetMetadata(target.TargetBlock, target.Level);
-            server.Scheduler.ScheduleEvent(DateTime.Now.AddSeconds(SecondsBetweenUpdates), s => AutomataUpdate(s, world, target.TargetBlock));
+            var chunk = world.FindChunk(target.TargetBlock);
+            server.Scheduler.ScheduleEvent(chunk,
+                DateTime.UtcNow.AddSeconds(SecondsBetweenUpdates),
+                s => AutomataUpdate(s, world, target.TargetBlock));
         }
 
         /// <summary>

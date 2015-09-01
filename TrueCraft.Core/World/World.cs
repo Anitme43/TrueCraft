@@ -7,10 +7,11 @@ using TrueCraft.API;
 using TrueCraft.API.World;
 using TrueCraft.API.Logic;
 using fNbt;
+using System.Collections;
 
 namespace TrueCraft.Core.World
 {
-    public class World : IDisposable, IWorld
+    public class World : IDisposable, IWorld, IEnumerable<IChunk>
     {
         public static readonly int Height = 128;
 
@@ -41,20 +42,22 @@ namespace TrueCraft.Core.World
         {
             get
             {
-                return (long)((DateTime.Now - BaseTime).TotalSeconds * 20) % 24000;
+                return (long)((DateTime.UtcNow - BaseTime).TotalSeconds * 20) % 24000;
             }
             set
             {
-                BaseTime = DateTime.Now.AddSeconds(-value / 20);
+                BaseTime = DateTime.UtcNow.AddSeconds(-value / 20);
             }
         }
 
         public event EventHandler<BlockChangeEventArgs> BlockChanged;
+        public event EventHandler<ChunkLoadedEventArgs> ChunkGenerated;
+        public event EventHandler<ChunkLoadedEventArgs> ChunkLoaded;
 
         public World()
         {
             Regions = new Dictionary<Coordinates2D, IRegion>();
-            BaseTime = DateTime.Now;
+            BaseTime = DateTime.UtcNow;
         }
 
         public World(string name) : this()
@@ -103,20 +106,22 @@ namespace TrueCraft.Core.World
         /// <summary>
         /// Finds a chunk that contains the specified block coordinates.
         /// </summary>
-        public IChunk FindChunk(Coordinates3D coordinates)
+        public IChunk FindChunk(Coordinates3D coordinates, bool generate = true)
         {
             IChunk chunk;
-            FindBlockPosition(coordinates, out chunk);
+            FindBlockPosition(coordinates, out chunk, generate);
             return chunk;
         }
 
-        public IChunk GetChunk(Coordinates2D coordinates)
+        public IChunk GetChunk(Coordinates2D coordinates, bool generate = true)
         {
             int regionX = coordinates.X / Region.Width - ((coordinates.X < 0) ? 1 : 0);
             int regionZ = coordinates.Z / Region.Depth - ((coordinates.Z < 0) ? 1 : 0);
 
-            var region = LoadOrGenerateRegion(new Coordinates2D(regionX, regionZ));
-            return region.GetChunk(new Coordinates2D(coordinates.X - regionX * 32, coordinates.Z - regionZ * 32));
+            var region = LoadOrGenerateRegion(new Coordinates2D(regionX, regionZ), generate);
+            if (region == null)
+                return null;
+            return region.GetChunk(new Coordinates2D(coordinates.X - regionX * 32, coordinates.Z - regionZ * 32), generate);
         }
 
         public void GenerateChunk(Coordinates2D coordinates)
@@ -205,7 +210,6 @@ namespace TrueCraft.Core.World
 
         public void SetBlockData(Coordinates3D coordinates, BlockDescriptor descriptor)
         {
-            // TODO: Figure out the best way to handle light in this scenario
             IChunk chunk;
             var adjustedCoordinates = FindBlockPosition(coordinates, out chunk);
             var old = GetBlockDataFromChunk(adjustedCoordinates, chunk, coordinates);
@@ -254,15 +258,25 @@ namespace TrueCraft.Core.World
         public void SetSkyLight(Coordinates3D coordinates, byte value)
         {
             IChunk chunk;
-            coordinates = FindBlockPosition(coordinates, out chunk);
-            chunk.SetSkyLight(coordinates, value);
+            var adjustedCoordinates = FindBlockPosition(coordinates, out chunk);
+            BlockDescriptor old = new BlockDescriptor();
+            if (BlockChanged != null)
+                old = GetBlockDataFromChunk(adjustedCoordinates, chunk, coordinates);
+            chunk.SetSkyLight(adjustedCoordinates, value);
+            if (BlockChanged != null)
+                BlockChanged(this, new BlockChangeEventArgs(coordinates, old, GetBlockDataFromChunk(adjustedCoordinates, chunk, coordinates)));
         }
 
         public void SetBlockLight(Coordinates3D coordinates, byte value)
         {
             IChunk chunk;
-            coordinates = FindBlockPosition(coordinates, out chunk);
-            chunk.SetBlockLight(coordinates, value);
+            var adjustedCoordinates = FindBlockPosition(coordinates, out chunk);
+            BlockDescriptor old = new BlockDescriptor();
+            if (BlockChanged != null)
+                old = GetBlockDataFromChunk(adjustedCoordinates, chunk, coordinates);
+            chunk.SetBlockLight(adjustedCoordinates, value);
+            if (BlockChanged != null)
+                BlockChanged(this, new BlockChangeEventArgs(coordinates, old, GetBlockDataFromChunk(adjustedCoordinates, chunk, coordinates)));
         }
 
         public void SetTileEntity(Coordinates3D coordinates, NbtCompound value)
@@ -300,30 +314,59 @@ namespace TrueCraft.Core.World
             Save();
         }
 
-        public Coordinates3D FindBlockPosition(Coordinates3D coordinates, out IChunk chunk)
+        private Dictionary<Thread, IChunk> ChunkCache = new Dictionary<Thread, IChunk>();
+        private object ChunkCacheLock = new object();
+
+        public Coordinates3D FindBlockPosition(Coordinates3D coordinates, out IChunk chunk, bool generate = true)
         {
             if (coordinates.Y < 0 || coordinates.Y >= Chunk.Height)
                 throw new ArgumentOutOfRangeException("coordinates", "Coordinates are out of range");
 
-            var chunkX = (int)Math.Floor((double)coordinates.X / Chunk.Width);
-            var chunkZ = (int)Math.Floor((double)coordinates.Z / Chunk.Depth);
+            int chunkX = coordinates.X / Chunk.Width;
+            int chunkZ = coordinates.Z / Chunk.Depth;
 
-            chunk = GetChunk(new Coordinates2D(chunkX, chunkZ));
+            if (coordinates.X < 0)
+                chunkX = (coordinates.X + 1) / Chunk.Width - 1;
+            if (coordinates.Z < 0)
+                chunkZ = (coordinates.Z + 1) / Chunk.Depth - 1;
+
+            if (ChunkCache.ContainsKey(Thread.CurrentThread))
+            {
+                var cache = ChunkCache[Thread.CurrentThread];
+                if (cache != null && chunkX == cache.Coordinates.X && chunkZ == cache.Coordinates.Z)
+                    chunk = cache;
+                else
+                {
+                    cache = GetChunk(new Coordinates2D(chunkX, chunkZ), generate);
+                    lock (ChunkCacheLock)
+                        ChunkCache[Thread.CurrentThread] = cache;
+                }
+            }
+            else
+            {
+                var cache = GetChunk(new Coordinates2D(chunkX, chunkZ), generate);
+                lock (ChunkCacheLock)
+                    ChunkCache[Thread.CurrentThread] = cache;
+            }
+
+            chunk = GetChunk(new Coordinates2D(chunkX, chunkZ), generate);
             return new Coordinates3D(
-                (coordinates.X - chunkX * Chunk.Width) % Chunk.Width,
+                (coordinates.X % Chunk.Width + Chunk.Width) % Chunk.Width,
                 coordinates.Y,
-                (coordinates.Z - chunkZ * Chunk.Depth) % Chunk.Depth);
+                (coordinates.Z % Chunk.Depth + Chunk.Depth) % Chunk.Depth);
         }
 
         public bool IsValidPosition(Coordinates3D position)
         {
-            return position.Y >= 0 && position.Y <= 255;
+            return position.Y >= 0 && position.Y < Chunk.Height;
         }
 
-        private Region LoadOrGenerateRegion(Coordinates2D coordinates)
+        private Region LoadOrGenerateRegion(Coordinates2D coordinates, bool generate = true)
         {
             if (Regions.ContainsKey(coordinates))
                 return (Region)Regions[coordinates];
+            if (!generate)
+                return null;
             Region region;
             if (BaseDirectory != null)
             {
@@ -344,6 +387,79 @@ namespace TrueCraft.Core.World
         {
             foreach (var region in Regions)
                 region.Value.Dispose();
+            BlockChanged = null;
+            ChunkGenerated = null;
+        }
+
+        protected internal void OnChunkGenerated(ChunkLoadedEventArgs e)
+        {
+            if (ChunkGenerated != null)
+                ChunkGenerated(this, e);
+        }
+
+        protected internal void OnChunkLoaded(ChunkLoadedEventArgs e)
+        {
+            if (ChunkLoaded != null)
+                ChunkLoaded(this, e);
+        }
+
+        public class ChunkEnumerator : IEnumerator<IChunk>
+        {
+            public World World { get; set; }
+            private int Index { get; set; }
+            private IList<IChunk> Chunks { get; set; }
+
+            public ChunkEnumerator(World world)
+            {
+                World = world;
+                Index = -1;
+                var regions = world.Regions.Values.ToList();
+                var chunks = new List<IChunk>();
+                foreach (var region in regions)
+                    chunks.AddRange(region.Chunks.Values);
+                Chunks = chunks;
+            }
+
+            public bool MoveNext()
+            {
+                Index++;
+                return Index < Chunks.Count;
+            }
+
+            public void Reset()
+            {
+                Index = -1;
+            }
+
+            public void Dispose()
+            {
+            }
+
+            public IChunk Current
+            {
+                get
+                {
+                    return Chunks[Index];
+                }
+            }
+
+            object IEnumerator.Current
+            {
+                get
+                {
+                    return Current;
+                }
+            }
+        }
+
+        public IEnumerator<IChunk> GetEnumerator()
+        {
+            return new ChunkEnumerator(this);
+        }
+
+        IEnumerator IEnumerable.GetEnumerator()
+        {
+            return this.GetEnumerator();
         }
     }
 }

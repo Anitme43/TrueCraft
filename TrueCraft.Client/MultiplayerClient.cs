@@ -14,6 +14,7 @@ using TrueCraft.API;
 using System.ComponentModel;
 using System.IO;
 using TrueCraft.Core;
+using TrueCraft.API.Physics;
 
 namespace TrueCraft.Client
 {
@@ -60,7 +61,6 @@ namespace TrueCraft.Client
             Client = new TcpClient();
             PacketReader = new PacketReader();
             PacketReader.RegisterCorePackets();
-            //NetworkWorker = new Thread(new ThreadStart(DoNetwork));
             PacketHandlers = new PacketHandler[0x100];
             Handlers.PacketHandlers.RegisterHandlers(this);
             World = new ReadOnlyWorld();
@@ -194,7 +194,14 @@ namespace TrueCraft.Client
                 if (Client != null && !Client.Client.ReceiveAsync(newArgs))
                     OperationCompleted(this, newArgs);
 
-                sem.Wait(cancel.Token);
+                try
+                {
+                    sem.Wait(cancel.Token);
+                }
+                catch (OperationCanceledException)
+                {
+                    return;
+                }
 
                 var packets = PacketReader.ReadPackets(this, e.Buffer, e.Offset, e.BytesTransferred, false);
 
@@ -203,7 +210,7 @@ namespace TrueCraft.Client
                     if (PacketHandlers[packet.ID] != null)
                         PacketHandlers[packet.ID](packet, this);
                 }
-
+                
                 if (sem != null)
                     sem.Release();
             }

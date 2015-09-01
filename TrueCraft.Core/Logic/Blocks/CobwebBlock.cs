@@ -19,7 +19,21 @@ namespace TrueCraft.Core.Logic.Blocks
 
         public override bool Opaque { get { return false; } }
 
-        //TODO: Mark this as a block that diffuses sun light.
+        public override bool DiffuseSkyLight
+        {
+            get
+            {
+                return true;
+            }
+        }
+
+        public override ToolType EffectiveTools
+        {
+            get
+            {
+                return ToolType.Sword;
+            }
+        }
         
         public override string DisplayName { get { return "Cobweb"; } }
 
@@ -28,7 +42,7 @@ namespace TrueCraft.Core.Logic.Blocks
             return new Tuple<int, int>(11, 0);
         }
 
-        protected override ItemStack[] GetDrop(BlockDescriptor descriptor)
+        protected override ItemStack[] GetDrop(BlockDescriptor descriptor, ItemStack item)
         {
             return new[] { new ItemStack(StringItem.ItemID, 1, descriptor.Metadata) };
         }

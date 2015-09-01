@@ -24,7 +24,15 @@ namespace TrueCraft.Core.Logic.Blocks
             return new Tuple<int, int>(2, 2);
         }
 
-        protected override ItemStack[] GetDrop(BlockDescriptor descriptor)
+        public override ToolType EffectiveTools
+        {
+            get
+            {
+                return ToolType.Pickaxe;
+            }
+        }
+
+        protected override ItemStack[] GetDrop(BlockDescriptor descriptor, ItemStack item)
         {
             return new[] { new ItemStack(CoalItem.ItemID, 1, descriptor.Metadata) };
         }

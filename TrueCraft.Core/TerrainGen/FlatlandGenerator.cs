@@ -81,6 +81,8 @@ namespace TrueCraft.Core.TerrainGen
             }
             for (int i = 0; i < chunk.Biomes.Length; i++)
                 chunk.Biomes[i] = (byte)Biome;
+            chunk.TerrainPopulated = true;
+            chunk.UpdateHeightMap();
             return chunk;
         }
 

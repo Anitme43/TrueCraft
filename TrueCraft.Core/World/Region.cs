@@ -63,7 +63,7 @@ namespace TrueCraft.Core.World
         /// generates it if a world generator is provided.
         /// </summary>
         /// <param name="position">The position of the requested local chunk coordinates.</param>
-        public IChunk GetChunk(Coordinates2D position)
+        public IChunk GetChunk(Coordinates2D position, bool generate = true)
         {
             // TODO: This could use some refactoring
             lock (Chunks)
@@ -80,11 +80,15 @@ namespace TrueCraft.Core.World
                             {
                                 if (World.ChunkProvider == null)
                                     throw new ArgumentException("The requested chunk is not loaded.", "position");
-                                GenerateChunk(position);
+                                if (generate)
+                                    GenerateChunk(position);
+                                else
+                                    return null;
                                 return Chunks[position];
                             }
                             regionFile.Seek(chunkData.Item1, SeekOrigin.Begin);
-                            /*int length = */new MinecraftStream(regionFile).ReadInt32(); // TODO: Avoid making new objects here, and in the WriteInt32
+                            /*int length = */
+                            new MinecraftStream(regionFile).ReadInt32(); // TODO: Avoid making new objects here, and in the WriteInt32
                             int compressionMode = regionFile.ReadByte();
                             switch (compressionMode)
                             {
@@ -95,6 +99,7 @@ namespace TrueCraft.Core.World
                                     nbt.LoadFromStream(regionFile, NbtCompression.ZLib, null);
                                     var chunk = Chunk.FromNbt(nbt);
                                     Chunks.Add(position, chunk);
+                                    World.OnChunkLoaded(new ChunkLoadedEventArgs(chunk));
                                     break;
                                 default:
                                     throw new InvalidDataException("Invalid compression scheme provided by region file.");
@@ -104,7 +109,12 @@ namespace TrueCraft.Core.World
                     else if (World.ChunkProvider == null)
                         throw new ArgumentException("The requested chunk is not loaded.", "position");
                     else
-                        GenerateChunk(position);
+                    {
+                        if (generate)
+                            GenerateChunk(position);
+                        else
+                            return null;
+                    }
                 }
                 return Chunks[position];
             }
@@ -116,7 +126,8 @@ namespace TrueCraft.Core.World
             var chunk = World.ChunkProvider.GenerateChunk(World, globalPosition);
             chunk.IsModified = true;
             chunk.Coordinates = globalPosition;
-            Chunks.Add(position, (IChunk)chunk);
+            Chunks.Add(position, chunk);
+            World.OnChunkGenerated(new ChunkLoadedEventArgs(chunk));
         }
 
         /// <summary>
@@ -180,7 +191,11 @@ namespace TrueCraft.Core.World
                     regionFile.Flush();
                     // Unload idle chunks
                     foreach (var chunk in toRemove)
+                    {
+                        var c = Chunks[chunk];
                         Chunks.Remove(chunk);
+                        c.Dispose();
+                    }
                 }
             }
         }

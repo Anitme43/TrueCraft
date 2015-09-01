@@ -1,6 +1,8 @@
 using System;
 using TrueCraft.API.Logic;
 using TrueCraft.API;
+using TrueCraft.API.World;
+using TrueCraft.API.Networking;
 
 namespace TrueCraft.Core.Logic.Blocks
 {
@@ -18,7 +20,7 @@ namespace TrueCraft.Core.Logic.Blocks
 
         public override bool Opaque { get { return false; } }
 
-        public override byte LightModifier { get { return 255; } }
+        public override byte LightOpacity { get { return 255; } }
         
         public override string DisplayName { get { return "Jack 'o' Lantern"; } }
 
@@ -53,6 +55,11 @@ namespace TrueCraft.Core.Logic.Blocks
             {
                 return false;
             }
+        }
+
+        public override void BlockPlaced(BlockDescriptor descriptor, BlockFace face, IWorld world, IRemoteClient user)
+        {
+            world.SetMetadata(descriptor.Coordinates, (byte)MathHelper.DirectionByRotationFlat(user.Entity.Yaw, true));
         }
     }
 }

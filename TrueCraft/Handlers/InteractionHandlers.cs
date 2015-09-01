@@ -11,6 +11,8 @@ using TrueCraft.Core.Entities;
 using fNbt;
 using TrueCraft.Core.Logic.Blocks;
 using System.Linq;
+using TrueCraft.Core.Logic.Items;
+using TrueCraft.Core.Logic;
 
 namespace TrueCraft.Handlers
 {
@@ -24,6 +26,8 @@ namespace TrueCraft.Handlers
             var position = new Coordinates3D(packet.X, packet.Y, packet.Z);
             var descriptor = world.GetBlockData(position);
             var provider = server.BlockRepository.GetBlockProvider(descriptor.ID);
+            short damage;
+            int time;
             switch (packet.PlayerAction)
             {
                 case PlayerDiggingPacket.Action.DropItem:
@@ -50,8 +54,26 @@ namespace TrueCraft.Handlers
                         server.SendMessage(ChatColor.Red + "WARNING: block provider for ID {0} is null (player digging)", descriptor.ID);
                     else
                         provider.BlockLeftClicked(descriptor, packet.Face, world, client);
-                    if (provider != null && provider.Hardness == 0)
+
+                    // "But why on Earth does this behavior change if you use shears on leaves?"
+                    // "This is poor seperation of concerns"
+                    // "Let me do a git blame and flame whoever wrote the next line"
+                    // To answer all of those questions, here:
+                    // Minecraft sends a player digging packet when the player starts and stops digging a block (two packets)
+                    // However, it only sends ONE packet if the block would be mined immediately - which usually is only the case
+                    // for blocks that have a hardness equal to zero.
+                    // The exception to this rule is shears on leaves. Leaves normally have a hardness of 0.2, but when you mine them
+                    // using shears the client only sends the start digging packet and expects them to be mined immediately.
+                    // So if you want to blame anyone, send flames to Notch for the stupid idea of not sending "stop digging" packets
+                    // for hardness == 0 blocks.
+
+                    time = BlockProvider.GetHarvestTime(descriptor.ID, client.SelectedItem.ID, out damage);
+                    if (time <= 20)
+                    {
                         provider.BlockMined(descriptor, packet.Face, world, client);
+                        break;
+                    }
+                    client.ExpectedDigComplete = DateTime.UtcNow.AddMilliseconds(time);
                     break;
                 case PlayerDiggingPacket.Action.StopDigging:
                     foreach (var nearbyClient in server.Clients)
@@ -61,7 +83,29 @@ namespace TrueCraft.Handlers
                             c.QueuePacket(new AnimationPacket(client.Entity.EntityID, AnimationPacket.PlayerAnimation.None));
                     }
                     if (provider != null && descriptor.ID != 0)
-                        provider.BlockMined(descriptor, packet.Face, world, client);
+                    {
+                        time = BlockProvider.GetHarvestTime(descriptor.ID, client.SelectedItem.ID, out damage);
+                        if (time <= 20)
+                            break; // Already handled earlier
+                        var diff = (DateTime.UtcNow - client.ExpectedDigComplete).TotalMilliseconds;
+                        if (diff > -100) // Allow a small tolerance
+                        {
+                            provider.BlockMined(descriptor, packet.Face, world, client);
+                            // Damage the item
+                            if (damage != 0)
+                            {
+                                var tool = server.ItemRepository.GetItemProvider(client.SelectedItem.ID) as ToolItem;
+                                if (tool != null && tool.Uses != -1)
+                                {
+                                    var slot = client.SelectedItem;
+                                    slot.Metadata += damage;
+                                    if (slot.Metadata >= tool.Uses)
+                                        slot.Count = 0; // Destroy item
+                                    client.Inventory[client.SelectedSlot] = slot;
+                                }
+                            }
+                        }
+                    }
                     break;
             }
         }
@@ -93,7 +137,7 @@ namespace TrueCraft.Handlers
                 {
                     server.SendMessage(ChatColor.Red + "WARNING: block provider for ID {0} is null (player placing)", block.Value.ID);
                     server.SendMessage(ChatColor.Red + "Error occured from client {0} at coordinates {1}", client.Username, block.Value.Coordinates);
-                    server.SendMessage(ChatColor.Red + "Packet logged at {0}, please report upstream", DateTime.Now);
+                    server.SendMessage(ChatColor.Red + "Packet logged at {0}, please report upstream", DateTime.UtcNow);
                     return;
                 }
                 if (!provider.BlockRightClicked(block.Value, packet.Face, client.World, client))
@@ -115,7 +159,7 @@ namespace TrueCraft.Handlers
                     {
                         server.SendMessage(ChatColor.Red + "WARNING: item provider for ID {0} is null (player placing)", block.Value.ID);
                         server.SendMessage(ChatColor.Red + "Error occured from client {0} at coordinates {1}", client.Username, block.Value.Coordinates);
-                        server.SendMessage(ChatColor.Red + "Packet logged at {0}, please report upstream", DateTime.Now);
+                        server.SendMessage(ChatColor.Red + "Packet logged at {0}, please report upstream", DateTime.UtcNow);
                     }
                     if (block != null)
                     {
